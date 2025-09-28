@@ -9,10 +9,16 @@ const fs = require("fs");
 
 // ---------- MULTER CONFIG ----------
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads/"),
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, "../uploads");
+    // Ensure the uploads folder exists
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+    cb(null, uploadDir);
+  },
   filename: (req, file, cb) =>
     cb(null, Date.now() + path.extname(file.originalname)),
 });
+
 const upload = multer({ storage });
 
 // ---------- ANALYZE IMAGE ----------
@@ -25,8 +31,11 @@ router.post(
       if (!req.file)
         return res.status(400).json({ message: "No file uploaded" });
 
-      const imagePath = req.file.path;
+      // Absolute path to the uploaded image
+      const imagePath = path.join(__dirname, "../uploads", req.file.filename);
+      console.log("🔹 Image path being sent to Python:", imagePath);
 
+      // Call Python script
       const pythonProcess = spawn("python", [
         path.join(__dirname, "../ml_model_api/app.py"),
         imagePath,
@@ -53,11 +62,11 @@ router.post(
           if (output.error)
             return res.status(500).json({ message: output.error });
 
-          // 🔹 Map Python's fertilizer_status → status (for frontend)
+          // Send result back to frontend
           res.json({
             ...output,
-            status: output.fertilizer_status, // 👈 added
-            imagePath,
+            status: output.fertilizer_status, // Optional mapping for frontend
+            imagePath: `/uploads/${req.file.filename}`, // Relative path for frontend if needed
           });
         } catch (e) {
           console.error("Failed to parse Python output:", e);
