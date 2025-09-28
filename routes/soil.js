@@ -1,6 +1,6 @@
+// backend/routes/soil.js
 const express = require("express");
 const Data = require("../models/data");
-const { verifyToken } = require("../middleware/auth");
 
 const router = express.Router();
 
@@ -13,19 +13,22 @@ const normalRanges = {
   K: { min: 10, max: 40 },
 };
 
-// GET /api/soil
-router.get("/", verifyToken, async (req, res) => {
+// GET /api/soil (tokenless, safe)
+router.get("/", async (req, res) => {
   try {
-    const userId = req.user.id;
+    console.log("Received GET /api/soil request");
 
-    // Fetch all data for this user, newest first
-    const userData = await Data.find({ userId }).sort({ createdAt: -1 });
+    // Fetch all data, newest first
+    const allData = await Data.find().sort({ createdAt: -1 });
+    console.log("Fetched entries:", allData.length);
 
-    // Add "state" and "generalState" for each reading
-    const enrichedData = userData.map((entry) => {
+    const enrichedData = allData.map((entry) => {
+      // Ensure sensorReadings exists
+      const sensorReadings = entry.sensorReadings || { ph: null, moisture: null, N: null, P: null, K: null };
+
       const states = {};
       for (let key of ["ph", "moisture", "N", "P", "K"]) {
-        const val = entry.sensorReadings[key];
+        const val = sensorReadings[key];
         if (val == null) states[key] = "null";
         else if (val < normalRanges[key].min) states[key] = "Low";
         else if (val > normalRanges[key].max) states[key] = "High";
@@ -39,16 +42,16 @@ router.get("/", verifyToken, async (req, res) => {
 
       return {
         _id: entry._id,
-        sensorReadings: entry.sensorReadings,
+        sensorReadings,
         states,
-        generalState, // added general value
+        generalState,
         createdAt: entry.createdAt,
       };
     });
 
     res.json(enrichedData);
   } catch (err) {
-    console.error(err);
+    console.error("Error fetching soil data:", err);
     res.status(500).json({ error: "Failed to fetch soil data" });
   }
 });
