@@ -1,7 +1,4 @@
-// backend/routes/soil.js
 const express = require("express");
-const Data = require("../models/data");
-
 const router = express.Router();
 
 // Normal ranges for soil parameters
@@ -13,47 +10,54 @@ const normalRanges = {
   K: { min: 10, max: 40 },
 };
 
-// GET /api/soil (tokenless, safe)
-router.get("/", async (req, res) => {
-  try {
-    console.log("Received GET /api/soil request");
+// In-memory soil data
+let soilData = [
+  {
+    _id: 1,
+    sensorReadings: { ph: 7, moisture: 45, N: 20, P: 10, K: 25 },
+    createdAt: new Date(),
+  },
+  {
+    _id: 2,
+    sensorReadings: { ph: 5.5, moisture: 15, N: 5, P: 3, K: 8 },
+    createdAt: new Date(),
+  },
+];
 
-    // Fetch all data, newest first
-    const allData = await Data.find().sort({ createdAt: -1 });
-    console.log("Fetched entries:", allData.length);
+// GET /api/soil
+router.get("/", (req, res) => {
+  const enrichedData = soilData.map((entry) => {
+    const sensorReadings = entry.sensorReadings;
+    const states = {};
+    for (let key of ["ph", "moisture", "N", "P", "K"]) {
+      const val = sensorReadings[key];
+      if (val == null) states[key] = "null";
+      else if (val < normalRanges[key].min) states[key] = "Low";
+      else if (val > normalRanges[key].max) states[key] = "High";
+      else states[key] = "Normal";
+    }
 
-    const enrichedData = allData.map((entry) => {
-      // Ensure sensorReadings exists
-      const sensorReadings = entry.sensorReadings || { ph: null, moisture: null, N: null, P: null, K: null };
+    // General state logic: High > Low > Normal
+    const counts = { Low: 0, Normal: 0, High: 0 };
+    Object.values(states).forEach((s) => counts[s] !== undefined && counts[s]++);
+    const generalState = counts.High > 0 ? "High" : counts.Low > 0 ? "Low" : "Normal";
 
-      const states = {};
-      for (let key of ["ph", "moisture", "N", "P", "K"]) {
-        const val = sensorReadings[key];
-        if (val == null) states[key] = "null";
-        else if (val < normalRanges[key].min) states[key] = "Low";
-        else if (val > normalRanges[key].max) states[key] = "High";
-        else states[key] = "Normal";
-      }
+    return { ...entry, states, generalState };
+  });
 
-      // General state logic: High > Low > Normal
-      const counts = { Low: 0, Normal: 0, High: 0 };
-      for (const s of Object.values(states)) if (s in counts) counts[s]++;
-      const generalState = counts.High > 0 ? "High" : counts.Low > 0 ? "Low" : "Normal";
+  res.json(enrichedData);
+});
 
-      return {
-        _id: entry._id,
-        sensorReadings,
-        states,
-        generalState,
-        createdAt: entry.createdAt,
-      };
-    });
-
-    res.json(enrichedData);
-  } catch (err) {
-    console.error("Error fetching soil data:", err);
-    res.status(500).json({ error: "Failed to fetch soil data" });
-  }
+// POST /api/soil to add new readings
+router.post("/", (req, res) => {
+  const { ph, moisture, N, P, K } = req.body;
+  const newEntry = {
+    _id: soilData.length + 1,
+    sensorReadings: { ph, moisture, N, P, K },
+    createdAt: new Date(),
+  };
+  soilData.unshift(newEntry); // add to start
+  res.json({ message: "New reading added", entry: newEntry });
 });
 
 module.exports = router;
